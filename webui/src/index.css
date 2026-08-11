@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 数字を読むためのアプリなので、等幅の桁揃えを最優先に置く。 */
+@font-face {
+  font-family: "Plex Mono";
+  src: url("/fonts/ibm-plex-mono-400.woff2") format("woff2");
+  font-weight: 400; font-display: block;
+}
+@font-face {
+  font-family: "Plex Mono";
+  src: url("/fonts/ibm-plex-mono-600.woff2") format("woff2");
+  font-weight: 600; font-display: block;
+}
+@font-face {
+  font-family: "Narrow";
+  src: url("/fonts/archivo-narrow-600.woff2") format("woff2");
+  font-weight: 600; font-display: block;
+}
+@font-face {
+  font-family: "Narrow";
+  src: url("/fonts/archivo-narrow-700.woff2") format("woff2");
+  font-weight: 700; font-display: block;
+}
+
+:root {
+  /* 坑内の岩肌から精錬された金までを一続きの色域として取る。
+     無彩色のグレーを避け、くすんだ金褐色を「弱い文字」に使うのがこの画面の骨格。 */
+  /* Tailwind に不透明度を合成させるため、チャンネル値を正とする。
+     hex のまま定義すると bg-ore/55 のような指定が CSS ごと生成されず、
+     枠線や帯が丸ごと透明になる。実体の色は下の --xxx を使う。 */
+  --pit-rgb: 11 12 14;
+  --seam-rgb: 20 22 26;
+  --vein-rgb: 28 31 37;
+  --line-rgb: 38 42 49;
+  --ink-rgb: 237 232 222;
+  --ore-rgb: 139 129 113;
+  --bullion-rgb: 232 176 75;
+  --flux-rgb: 244 215 154;
+  --assay-rgb: 79 191 159;
+  --slag-rgb: 222 91 78;
+  --copper-rgb: 199 123 75;
+  --cinder-rgb: 110 122 135;
+
+  --pit: rgb(var(--pit-rgb));
+  --seam: rgb(var(--seam-rgb));
+  --vein: rgb(var(--vein-rgb));
+  --line: rgb(var(--line-rgb));
+  --ink: rgb(var(--ink-rgb));
+  --ore: rgb(var(--ore-rgb));
+  --bullion: rgb(var(--bullion-rgb));
+  --flux: rgb(var(--flux-rgb));
+  --assay: rgb(var(--assay-rgb));
+  --slag: rgb(var(--slag-rgb));
+  --copper: rgb(var(--copper-rgb));
+  --cinder: rgb(var(--cinder-rgb));
+
+  --safe-top: 0px;
+  --safe-bottom: 0px;
+  --ime: 0px;
+}
+
+* { -webkit-tap-highlight-color: transparent; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--pit);
+  color: var(--ink);
+  font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  overscroll-behavior-y: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 数字はすべて桁を揃える。比較する画面で桁がずれるのは致命的。 */
+.fig {
+  font-family: "Plex Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.disp {
+  font-family: "Narrow", "Plex Mono", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* 見出しの上に置く小さなラベル。分類や単位など、内容に意味のあるものだけに使う。 */
+.eyebrow {
+  font-family: "Narrow", sans-serif;
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ore);
+}
+
+.hairline { border-color: var(--line); }
+
+::-webkit-scrollbar { width: 0; height: 0; }
+
+input, textarea { font-family: inherit; }
+
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.rise { animation: rise .32s cubic-bezier(.2,.7,.3,1) both; }
+
+@keyframes fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.fill { transform-origin: left; animation: fill .6s cubic-bezier(.2,.7,.3,1) both; }
+
+@keyframes pulse { 0%,100% { opacity: .35 } 50% { opacity: .9 } }
+.pulse { animation: pulse 1.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rise, .fill, .pulse { animation: none !important; }
+}

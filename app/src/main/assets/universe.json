@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "note": "構造的属性の初期値。数値の一部はClaudeによる定性推定で、AI更新により上書きされる。",
+  "categories": {
+    "senior": { "label": "大手", "desc": "生産量が大きく資産が分散した鉱山会社。個別鉱山のトラブル耐性が高い" },
+    "mid": { "label": "中堅", "desc": "鉱山数が少なく、1鉱山の事故・政変が業績と株価を大きく動かす" },
+    "royalty": { "label": "ロイヤリティ", "desc": "鉱山を保有せず権利収入を得る。採掘コスト・燃料費の影響を受けない" }
+  },
+  "tickers": [
+    {
+      "ticker": "AEM", "name": "アグニコ・イーグル・マインズ", "nameEn": "Agnico Eagle Mines",
+      "category": "senior", "oilSensitivity": -0.20, "jurisdictionRisk": 12,
+      "jurisdictions": ["カナダ", "フィンランド", "オーストラリア", "メキシコ"],
+      "keyAssets": ["Detour Lake", "Canadian Malartic", "Meliadine", "Meadowbank", "Kittila", "Fosterville"],
+      "traits": ["管轄リスクが最小級", "オンタリオ/ケベックの水力系統電力でコスト安定"],
+      "ir": "https://www.agnicoeagle.com/English/investor-relations/default.aspx"
+    },
+    {
+      "ticker": "NEM", "name": "ニューモント・コーポレーション", "nameEn": "Newmont Corporation",
+      "category": "senior", "oilSensitivity": -0.30, "jurisdictionRisk": 32,
+      "jurisdictions": ["米国", "カナダ", "オーストラリア", "ペルー", "メキシコ", "ガーナ", "アルゼンチン", "パプアニューギニア", "スリナム"],
+      "keyAssets": ["Nevada Gold Mines(JV)", "Boddington", "Penasquito", "Lihir", "Cadia", "Ahafo"],
+      "traits": ["世界最大の金生産会社", "銅の副産物収入あり", "資産売却による整理が続く"],
+      "ir": "https://www.newmont.com/investors/default.aspx"
+    },
+    {
+      "ticker": "B", "name": "バリック・マイニング", "nameEn": "Barrick Mining",
+      "category": "senior", "oilSensitivity": -0.35, "jurisdictionRisk": 55,
+      "jurisdictions": ["米国", "ドミニカ共和国", "マリ", "タンザニア", "アルゼンチン", "チリ", "パプアニューギニア", "ザンビア", "パキスタン"],
+      "keyAssets": ["Nevada Gold Mines(JV)", "Pueblo Viejo", "Loulo-Gounkoto", "Kibali", "Lumwana(銅)", "Reko Diq(開発)"],
+      "traits": ["銅事業の比率が高く純粋な金株ではない", "西アフリカの資源ナショナリズムが最大の変動要因"],
+      "ir": "https://www.barrick.com/English/investors/default.aspx"
+    },
+    {
+      "ticker": "KGC", "name": "キンロス・ゴールド", "nameEn": "Kinross Gold",
+      "category": "mid", "oilSensitivity": -0.40, "jurisdictionRisk": 50,
+      "jurisdictions": ["米国", "カナダ", "ブラジル", "モーリタニア", "チリ"],
+      "keyAssets": ["Tasiast", "Paracatu", "Round Mountain", "Bald Mountain", "Manh Choh", "Great Bear(開発)"],
+      "traits": ["大規模露天掘り中心で燃料費感応度が高い", "Great Bear開発の進捗が中期の主テーマ"],
+      "ir": "https://www.kinross.com/investors/default.aspx"
+    },
+    {
+      "ticker": "AU", "name": "アングロゴールド・アシャンティ", "nameEn": "AngloGold Ashanti",
+      "category": "mid", "oilSensitivity": -0.30, "jurisdictionRisk": 62,
+      "jurisdictions": ["ガーナ", "タンザニア", "コンゴ民主共和国", "エジプト", "オーストラリア", "ブラジル", "アルゼンチン"],
+      "keyAssets": ["Geita", "Obuasi", "Iduapriem", "Kibali(JV)", "Sukari", "Tropicana", "Sunrise Dam"],
+      "traits": ["アフリカ資産の比重が高く管轄リスクは9銘柄中で最大級", "現地通貨安がコスト面では追い風になる"],
+      "ir": "https://www.anglogoldashanti.com/investors/"
+    },
+    {
+      "ticker": "AGI", "name": "アラモス・ゴールド", "nameEn": "Alamos Gold",
+      "category": "mid", "oilSensitivity": -0.25, "jurisdictionRisk": 25,
+      "jurisdictions": ["カナダ", "メキシコ", "トルコ"],
+      "keyAssets": ["Island Gold", "Magino", "Young-Davidson", "Mulatos/La Yaqui Grande"],
+      "traits": ["カナダ資産中心で中堅の中では管轄リスクが低い", "Island Gold増産計画の遂行が成長の柱", "トルコ案件は許認可で長期停滞"],
+      "ir": "https://alamosgold.com/investors/default.aspx"
+    },
+    {
+      "ticker": "EGO", "name": "エルドラド・ゴールド", "nameEn": "Eldorado Gold",
+      "category": "mid", "oilSensitivity": -0.25, "jurisdictionRisk": 55,
+      "jurisdictions": ["トルコ", "ギリシャ", "カナダ"],
+      "keyAssets": ["Kisladag", "Efemcukuru", "Lamaque", "Skouries(開発)"],
+      "traits": ["鉱山数が少なく単一資産の影響が極めて大きい", "Skouries開発の予算・工期が株価の最大変数", "トルコの規制・通貨が業績に直結"],
+      "ir": "https://www.eldoradogold.com/investors/"
+    },
+    {
+      "ticker": "WPM", "name": "ウィートン・プレシャス・メタルズ", "nameEn": "Wheaton Precious Metals",
+      "category": "royalty", "oilSensitivity": 0.0, "jurisdictionRisk": 30,
+      "jurisdictions": ["ブラジル", "ペルー", "メキシコ", "カナダ", "チリ"],
+      "keyAssets": ["Salobo", "Penasquito", "Antamina", "Constancia", "Voisey's Bay"],
+      "traits": ["ストリーミング契約により固定安値で金銀を取得。採掘コスト増の影響を受けない", "銀の比率が相対的に高く金銀比の変動を受ける", "設備投資の超過リスクを負わない"],
+      "ir": "https://www.wheatonpm.com/investors/"
+    },
+    {
+      "ticker": "FNV", "name": "フランコ-ネバダ", "nameEn": "Franco-Nevada",
+      "category": "royalty", "oilSensitivity": 0.15, "jurisdictionRisk": 38,
+      "jurisdictions": ["カナダ", "米国", "ペルー", "チリ", "パナマ", "オーストラリア"],
+      "keyAssets": ["Cobre Panama(停止中)", "Candelaria", "Antapaccay", "Antamina", "Detour", "エネルギーロイヤリティ"],
+      "traits": ["業界最大のロイヤリティ会社で権益数が多く分散が効く", "石油ガスのロイヤリティ収入を持つため原油高は増益要因（鉱山会社と逆方向）", "単一大型権益の停止が業績に直撃した前例あり"],
+      "ir": "https://www.franco-nevada.com/investors/"
+    }
+  ],
+  "benchmarks": [
+    { "symbol": "GC=F", "label": "金先物", "key": "gold" },
+    { "symbol": "SI=F", "label": "銀先物", "key": "silver" },
+    { "symbol": "CL=F", "label": "WTI原油", "key": "oil" },
+    { "symbol": "DX-Y.NYB", "label": "ドル指数", "key": "dxy" },
+    { "symbol": "^TNX", "label": "米10年金利", "key": "ust10" },
+    { "symbol": "GDX", "label": "金鉱株ETF", "key": "gdx" },
+    { "symbol": "GLD", "label": "金ETF", "key": "gldEtf" },
+    { "symbol": "^VIX", "label": "VIX", "key": "vix" }
+  ]
+}

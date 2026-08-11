@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="pit">#FF0B0C0E</color>
+    <color name="bullion">#FFE8B04B</color>
+    <!-- アイコン背景。原画の濃紺に合わせる -->
+    <color name="ic_launcher_background">#FF111827</color>
+</resources>

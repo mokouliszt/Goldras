@@ -1,0 +1,15 @@
+# Goldras
+*.iml
+*.jks
+*.keystore
+.DS_Store
+.gradle/
+.idea/
+app/src/main/assets/webui/
+build/
+keystore.properties
+local.properties
+node_modules/
+webui/dist/
+webui/npm.log
+webui/tsconfig.tsbuildinfo
