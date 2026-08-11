@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --pit: #0b0c0e;
+  --seam: #14161a;
+  --vein: #1c1f25;
+  --ink: #ede8de;
+  --ore: #8b8171;
+  --bullion: #e8b04b;
+  --flux: #f4d79a;
+  --assay: #4fbf9f;
+  --slag: #de5b4e;
+  --copper: #c77b4b;
+  --cinder: #6e7a87;
+  --line: rgba(237, 232, 222, 0.1);
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 76px;
+}
+
+body {
+  margin: 0;
+  background: var(--pit);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 数字は桁を揃える。アプリ側と同じ扱い */
+.fig {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.eyebrow {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+/* 岩盤に走る鉱脈。背景の奥行きを作る */
+.seam-glow {
+  background:
+    radial-gradient(60rem 30rem at 78% -10%, rgba(232, 176, 75, 0.13), transparent 60%),
+    radial-gradient(40rem 24rem at 8% 10%, rgba(199, 123, 75, 0.08), transparent 62%);
+}
+
+/* 地層の重なりを示す細い横線 */
+.strata {
+  background-image: repeating-linear-gradient(
+    180deg,
+    transparent 0 38px,
+    rgba(237, 232, 222, 0.035) 38px 39px
+  );
+}
+
+/* アプリの中心にある図をそのままWeb側にも持ち込む。
+   帯の全長が金の売値、左からコストが埋め、残りが利ざや。 */
+.costbar {
+  position: relative;
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--vein);
+}
+.costbar > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: block;
+}
+
+/* 端末の枠 */
+.phone {
+  border-radius: 34px;
+  border: 8px solid #23272e;
+  background: #23272e;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+/* 画面が並ぶときの奥行き */
+.stack > *:not(:first-child) {
+  margin-left: -14%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
