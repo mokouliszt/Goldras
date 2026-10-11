@@ -46,7 +46,11 @@ object Alerts {
         wm.enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.UPDATE, req)
     }
 
-    fun notify(context: Context, id: Int, title: String, body: String, url: String?) {
+    /**
+     * targetSdk 28 のアプリには、Android 13 以降、最初に通知チャンネルを作ったときに
+     * システムが通知の許可を求める。画面が出ている起動時に作っておく。
+     */
+    fun ensureChannel(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null) {
             nm.createNotificationChannel(
@@ -54,6 +58,10 @@ object Alerts {
                     description = "保有銘柄と金の地合いに関する、判断に影響する変化だけを通知します"
                 })
         }
+    }
+
+    fun notify(context: Context, id: Int, title: String, body: String, url: String?) {
+        ensureChannel(context)
         val intent = Intent(context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
             .also { if (url != null) it.putExtra("url", url) }
@@ -124,23 +132,32 @@ class WatchWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
 
         // ---- 段階2: 何か動いた日だけ Codex にニュースを確認させる ----
         if (triggers.isEmpty()) return Result.success()
-        val auth = CodexAuth(ctx)
-        if (!auth.isLoggedIn()) return Result.success()
+        if (!CodexRuntime.isLoggedIn(ctx)) return Result.success()
 
-        val codex = CodexClient(auth) { store.workspace }
+        val codex = CodexClient(ctx)
         val s = store.settings()
         val ctxBlock = Prompts.contextBlock(
             store.universe(), snap, store.fundamentals(), store.macro())
         val buf = StringBuilder()
+        var finalText: String? = null
         runCatching {
             codex.run(
                 Prompts.watch(ctxBlock),
                 listOf(Msg("user", "直近の材料を確認し、通知に値するものだけをJSONで返してください。対象: " + triggers.joinToString(", "))),
+                // ニュース確認に深い推論は要らないので medium。モデルが受け付けなければそのモデルの既定になる
                 s.optString("model"), "medium",
-            ).catch { }.collect { ev -> if (ev is CodexEvent.Delta) buf.append(ev.text) }
+            ).catch { }.collect { ev ->
+                when (ev) {
+                    is CodexEvent.Delta -> buf.append(ev.text)
+                    is CodexEvent.Final -> finalText = ev.text
+                    is CodexEvent.Tool -> {}
+                }
+            }
         }
+        // 画面が開いていなければ、Codex を起こしたままにしない
+        if (!MainActivity.isUiAlive()) CodexRuntime.stopIfIdle()
         val parsed = runCatching {
-            val text = buf.toString()
+            val text = finalText?.takeIf { it.isNotBlank() } ?: buf.toString()
             val a = text.indexOf('{'); val b = text.lastIndexOf('}')
             if (a < 0 || b <= a) null else JSONObject(text.substring(a, b + 1))
         }.getOrNull() ?: return Result.success()

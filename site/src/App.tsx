@@ -99,7 +99,7 @@ function Hero() {
           </div>
 
           <p className="mt-5 text-[12.5px] leading-relaxed text-ink/40">
-            Android 8.0 以上 / MIT ライセンス
+            Android 8.0 以上（arm64）/ MIT ライセンス
             <br />
             市場データの表示だけならログイン不要で動きます
           </p>
@@ -399,7 +399,7 @@ function Install() {
             <ul className="m-0 mt-4 list-none space-y-3 p-0 text-[14px] text-ink/60">
               <li className="flex justify-between gap-4 border-b border-line pb-3">
                 <span>Android</span>
-                <span className="fig text-ink">8.0 以上</span>
+                <span className="fig text-ink">8.0 以上・arm64</span>
               </li>
               <li className="flex justify-between gap-4 border-b border-line pb-3">
                 <span>ChatGPT</span>
@@ -474,10 +474,10 @@ function Notes() {
           </CardBody>
         </Card>
         <Card>
-          <CardTitle>非公式APIに依存しています</CardTitle>
+          <CardTitle>外部サービスの変更に左右されます</CardTitle>
           <CardBody>
-            ChatGPT の Codex backend と Yahoo Finance のエンドポイントを直接利用しているため、
-            提供側の仕様変更で動作しなくなる場合があります。
+            価格は Yahoo Finance の非公式エンドポイントから取得しています。ChatGPT との通信は同梱の公式 Codex が行いますが、
+            どちらも提供側の変更で動かなくなることがあります。
             利用にあたっては OpenAI の利用規約を各自でご確認ください。
           </CardBody>
         </Card>

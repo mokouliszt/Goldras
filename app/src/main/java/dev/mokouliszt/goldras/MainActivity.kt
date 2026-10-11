@@ -1,9 +1,9 @@
 package dev.mokouliszt.goldras
 
-import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Build
@@ -17,11 +17,12 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewAssetLoader
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,7 +38,6 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var web: WebView
     private lateinit var store: Store
-    private lateinit var auth: CodexAuth
     private lateinit var codex: CodexClient
 
     companion object {
@@ -54,6 +54,18 @@ class MainActivity : ComponentActivity() {
          */
         @Volatile private var lastProgress: JSONObject? = null
 
+        /** 待っている ChatGPT ログイン（キャンセル用）。 */
+        @Volatile private var loginReqId: String? = null
+        @Volatile private var codexLoginId: String? = null
+
+        /** Codex の更新確認はアプリの起動ごとに1回（さらに CodexUpdater 側で1時間に1回まで）。 */
+        @Volatile private var startupChecked = false
+        /** Codex 更新のダウンロード進捗。画面が作り直されても表示に復帰できるように持つ。 */
+        @Volatile private var updateProgress: JSONObject? = null
+
+        /** 画面（WebView）が生きているか。バックグラウンドの監視が Codex を止めてよいかの判断に使う。 */
+        fun isUiAlive(): Boolean = sink != null
+
         /** 通知の「中止」から呼ばれる。走っているものを全部畳んで画面にも知らせる。 */
         fun cancelAll() {
             val ids = jobs.keys.toList()
@@ -65,21 +77,6 @@ class MainActivity : ComponentActivity() {
 
     private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    /**
-     * Android 13 以降、通知は実行時に許可を取らないと表示されない。
-     * 許可が無くても前面サービス自体は動くが、実行中の表示も
-     * 重要イベントの通知も出ないので、体感では「何も起きていない」ことになる。
-     */
-    private val notifPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
-
-    private fun ensureNotificationPermission() {
-        if (Build.VERSION.SDK_INT < 33) return
-        val granted = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
-        if (!granted) runCatching { notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }
-    }
-
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -87,8 +84,7 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
         store = Store(this)
-        auth = CodexAuth(this)
-        codex = CodexClient(auth) { store.workspace }
+        codex = CodexClient(this)
 
         val loader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
@@ -121,21 +117,27 @@ class MainActivity : ComponentActivity() {
         ViewCompat.setOnApplyWindowInsetsListener(web) { _, insets -> pushInsets(insets); insets }
         sink = { type, payload -> deliver(type, payload) }
 
+        CodexRuntime.isLoggedIn(this) // 保存済みのログイン状態を読み込んでから購読する
         uiScope.launch {
-            CodexAuth.loggedInFlow.collect { emit("auth", JSONObject().put("loggedIn", it)) }
+            CodexRuntime.loggedInFlow.collect { emit("auth", JSONObject().put("loggedIn", it)) }
         }
 
-        ensureNotificationPermission()
+        // Android 13 以降の通知の許可は、targetSdk 28 ではチャンネル作成時にシステムが求める
+        Alerts.ensureChannel(this)
         Alerts.schedule(this)
+        startupCodexCheck()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        emit("auth", JSONObject().put("loggedIn", auth.isLoggedIn()))
+        emit("auth", JSONObject().put("loggedIn", CodexRuntime.isLoggedIn(this)))
     }
 
     override fun onDestroy() {
-        if (!isChangingConfigurations) sink = null
+        if (!isChangingConfigurations) {
+            sink = null
+            if (jobs.isEmpty() && isFinishing) CodexRuntime.stopIfIdle()
+        }
         uiScope.coroutineContext[Job]?.cancel()
         super.onDestroy()
     }
@@ -176,6 +178,35 @@ class MainActivity : ComponentActivity() {
                 if (jobs.isEmpty()) lastProgress = null
                 RequestService.end(app)
             }
+        }
+    }
+
+    /** 前面サービスを立てるまでもない短い問い合わせ（モデル一覧など）。 */
+    private fun launchQuiet(block: suspend () -> Unit) {
+        appScope.launch { runCatching { block() } }
+    }
+
+    /** Codex の失敗を画面へ。ログインが切れていれば needLogin を付け、ログイン画面を開かせる。 */
+    private fun emitFailure(reqId: String, e: Throwable, fallback: String) {
+        if (e is CancellationException) return
+        emit("error", req(reqId)
+            .put("message", e.message ?: fallback)
+            .put("needLogin", (e as? CodexException)?.needLogin == true))
+    }
+
+    private fun openExternal(u: Uri) {
+        runCatching {
+            if (u.scheme == "https" || u.scheme == "http") {
+                CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(this, u)
+            } else startActivity(Intent(Intent.ACTION_VIEW, u))
+        }
+    }
+
+    /** ログインを終えたブラウザから、アプリを前面に戻す。 */
+    private fun bringToFront() {
+        runCatching {
+            applicationContext.startActivity(Intent(applicationContext, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
         }
     }
 
@@ -252,7 +283,7 @@ class MainActivity : ComponentActivity() {
      * needLogin を付けて返すと、WebUI 側がログイン画面を開く。
      */
     private fun requireLogin(reqId: String): Boolean {
-        if (auth.isLoggedIn()) return true
+        if (CodexRuntime.isLoggedIn(this)) return true
         emit("error", req(reqId).put("message", "ChatGPTにログインしてください").put("needLogin", true))
         return false
     }
@@ -265,22 +296,23 @@ class MainActivity : ComponentActivity() {
         if (!requireLogin(reqId)) return
         val s = store.settings()
         val buf = StringBuilder()
+        var finalText: String? = null
         var failed = false
         launchRequest(reqId, jsonTaskLabel) {
             codex.run(instructions, listOf(Msg("user", userText)), s.optString("model"), s.optString("effort"))
                 .catch { e ->
                     failed = true
-                    emit("error", req(reqId).put("message", e.message ?: "取得に失敗しました"))
+                    emitFailure(reqId, e, "取得に失敗しました")
                 }
                 .collect { ev ->
                     when (ev) {
                         is CodexEvent.Delta -> buf.append(ev.text)
                         is CodexEvent.Tool -> emit("tool", req(reqId).put("label", ev.label))
-                        is CodexEvent.Fail -> { failed = true; emit("error", req(reqId).put("message", ev.message)) }
+                        is CodexEvent.Final -> finalText = ev.text
                     }
                 }
             if (failed) return@launchRequest
-            val parsed = extractJson(buf.toString())
+            val parsed = extractJson(finalText?.takeIf { it.isNotBlank() } ?: buf.toString())
             if (parsed == null) emit("error", req(reqId).put("message", "結果を解釈できませんでした"))
             else runCatching { onOk(parsed) }
                 .onFailure { emit("error", req(reqId).put("message", it.message ?: "保存に失敗しました")) }
@@ -378,13 +410,13 @@ class MainActivity : ComponentActivity() {
             codex.run(Prompts.chat(ctx), msgs, s.optString("model"), s.optString("effort"))
                 .catch { e ->
                     failed = true
-                    emit("error", req(reqId).put("message", e.message ?: "通信に失敗しました"))
+                    emitFailure(reqId, e, "通信に失敗しました")
                 }
                 .collect { ev ->
                     when (ev) {
                         is CodexEvent.Delta -> emit("delta", req(reqId).put("text", ev.text))
                         is CodexEvent.Tool -> emit("tool", req(reqId).put("label", ev.label))
-                        is CodexEvent.Fail -> { failed = true; emit("error", req(reqId).put("message", ev.message)) }
+                        is CodexEvent.Final -> {}
                     }
                 }
             if (!failed) emit("done", req(reqId))
@@ -445,6 +477,7 @@ class MainActivity : ComponentActivity() {
                 emit("progress", prog)
                 RequestService.progress(label, doneCount, total)
                 val buf = StringBuilder()
+                var finalText: String? = null
                 runCatching {
                     codex.run(instructions, listOf(Msg("user", userText)),
                         s.optString("model"), s.optString("effort"))
@@ -453,11 +486,11 @@ class MainActivity : ComponentActivity() {
                             when (ev) {
                                 is CodexEvent.Delta -> buf.append(ev.text)
                                 is CodexEvent.Tool -> emit("tool", req(reqId).put("label", ev.label))
-                                is CodexEvent.Fail -> {}
+                                is CodexEvent.Final -> finalText = ev.text
                             }
                         }
                 }
-                val parsed = extractJson(buf.toString())
+                val parsed = extractJson(finalText?.takeIf { it.isNotBlank() } ?: buf.toString())
                 if (parsed == null) failed++ else runCatching { onOk(parsed) }.onFailure { failed++ }
                 doneCount++
             }
@@ -519,6 +552,102 @@ class MainActivity : ComponentActivity() {
         return runCatching { JSONObject(cleaned.substring(start, end + 1)) }.getOrNull()
     }
 
+    // ---- Codex: ログイン・モデル・本体の更新 ----
+
+    /**
+     * ChatGPT へのログインは Codex に任せる。ブラウザ方式では Codex が端末内の
+     * localhost:1455 で認可の戻りを受け取り、コード方式では表示したコードを入力してもらう。
+     */
+    private fun runLogin(reqId: String, device: Boolean) {
+        val app = applicationContext
+        loginReqId?.let { jobs.remove(it)?.cancel() }
+        loginReqId = reqId
+        RequestService.begin(app, "ChatGPTのログインを待っています")
+        jobs[reqId] = appScope.launch {
+            try {
+                val r = CodexRuntime.startLogin(app, device)
+                codexLoginId = r.optString("loginId").takeIf { it.isNotBlank() }
+                emit("codexLoginStarted", req(reqId)
+                    .put("device", device)
+                    .put("verificationUrl", r.optString("verificationUrl"))
+                    .put("userCode", r.optString("userCode")))
+                if (!device) openExternal(Uri.parse(r.optString("authUrl")))
+                val done = try { CodexRuntime.awaitLogin() } finally { codexLoginId = null }
+                if (!done.optBoolean("success")) {
+                    throw CodexException(done.optString("error").takeUnless { it.isBlank() || it == "null" }
+                        ?: "ChatGPTへのログインに失敗しました")
+                }
+                bringToFront()
+                emit("auth", req(reqId).put("loggedIn", true))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                emit("loginFailed", req(reqId).put("message", e.message ?: "ChatGPTへのログインに失敗しました"))
+            } finally {
+                if (loginReqId == reqId) loginReqId = null
+                jobs.remove(reqId)
+                RequestService.end(app)
+            }
+        }
+    }
+
+    /** 起動時に openai/codex の新しいリリースを確認する（最大1時間に1回）。 */
+    private fun startupCodexCheck() {
+        if (startupChecked) return
+        startupChecked = true
+        val ctx = applicationContext
+        appScope.launch {
+            if (!CodexUpdater.isSupported(ctx)) return@launch
+            // ログイン済みなら、初めての分析を待たせないよう同梱版の展開を先に済ませる
+            if (CodexRuntime.isLoggedIn(ctx)) {
+                runCatching { CodexRuntime.warmUp(ctx) }.onFailure { Log.w("Goldras", "Codex warm-up failed", it) }
+            }
+            if (!CodexUpdater.shouldCheck(ctx)) return@launch
+            val rel = runCatching { CodexUpdater.latest(ctx) }.getOrNull() ?: return@launch
+            if (!CodexUpdater.isNewer(ctx, rel)) {
+                emit("codexUpdate", JSONObject().put("status", CodexUpdater.status(ctx)))
+                return@launch
+            }
+            val policy = store.settings().optString("codexAutoUpdate", "wifi")
+            val auto = policy == "always" || (policy == "wifi" && !CodexUpdater.isMetered(ctx))
+            if (auto) runCodexUpdate("codex-update", rel)
+            else emit("codexUpdate", JSONObject().put("status", CodexUpdater.status(ctx)).put("available", rel.version))
+        }
+    }
+
+    private fun runCodexUpdate(reqId: String, known: CodexUpdater.Release? = null) {
+        if (jobs.keys.any { it.startsWith("codex-update") }) return
+        val app = applicationContext
+        RequestService.begin(app, "Codex を更新しています")
+        jobs[reqId] = appScope.launch {
+            try {
+                val rel = known ?: CodexUpdater.latest(app)
+                if (!CodexUpdater.isNewer(app, rel)) {
+                    emit("codexUpdate", JSONObject().put("status", CodexUpdater.status(app)).put("upToDate", true))
+                    return@launch
+                }
+                RequestService.progress("Codex ${rel.version} を取得中")
+                val v = CodexUpdater.install(app, rel) { have, total ->
+                    val p = JSONObject().put("version", rel.version).put("done", have).put("total", total)
+                    updateProgress = p
+                    emit("codexUpdateProgress", p)
+                }
+                // 処理中でなければ止めておき、次の要求から新しい版で起動させる
+                CodexRuntime.stopIfIdle()
+                emit("codexUpdate", JSONObject().put("status", CodexUpdater.status(app)).put("updated", v))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                emit("codexUpdate", JSONObject().put("status", CodexUpdater.status(app))
+                    .put("error", "Codex を更新できませんでした: ${e.message ?: e.javaClass.simpleName}"))
+            } finally {
+                updateProgress = null
+                jobs.remove(reqId)
+                RequestService.end(app)
+            }
+        }
+    }
+
     // ---- JS ブリッジ ----
 
     inner class Bridge {
@@ -532,11 +661,13 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface
         fun state(): String = guard("state") {
             JSONObject()
-                .put("loggedIn", auth.isLoggedIn())
-                .put("activeRequest", jobs.keys.firstOrNull() ?: JSONObject.NULL)
+                .put("loggedIn", CodexRuntime.isLoggedIn(this@MainActivity))
+                .put("activeRequest", jobs.keys.firstOrNull { it != loginReqId && !it.startsWith("codex-update") } ?: JSONObject.NULL)
                 .put("progress", lastProgress ?: JSONObject.NULL)
-                .put("models", JSONArray(CodexClient.MODELS))
-                .put("efforts", JSONArray(CodexClient.EFFORTS))
+                .put("codex", JSONObject()
+                    .put("bundled", CodexUpdater.isSupported(this@MainActivity))
+                    .put("update", CodexUpdater.status(this@MainActivity))
+                    .put("updating", updateProgress ?: JSONObject.NULL))
                 .put("settings", store.settings())
                 .put("universe", store.universe())
                 .put("snapshot", store.snapshot())
@@ -547,17 +678,69 @@ class MainActivity : ComponentActivity() {
                 .toString()
         }
 
+        /** device = true でコード方式（別の端末やブラウザでコードを入力する）。 */
         @JavascriptInterface
-        fun login() {
-            runOnUiThread {
-                auth.startLogin(this@MainActivity) { ok ->
-                    emit("auth", JSONObject().put("loggedIn", ok || auth.isLoggedIn()))
+        fun login(reqId: String, device: Boolean) { runOnUiThread { runLogin(reqId, device) } }
+
+        @JavascriptInterface
+        fun cancelLogin() {
+            val ctx = applicationContext
+            codexLoginId?.let { id -> appScope.launch { CodexRuntime.cancelLogin(ctx, id) } }
+            loginReqId?.let { jobs.remove(it)?.cancel() }
+            loginReqId = null
+        }
+
+        @JavascriptInterface
+        fun logout() {
+            val ctx = applicationContext
+            appScope.launch {
+                runCatching { CodexRuntime.logout(ctx) }
+                    .onFailure { emit("notice", JSONObject().put("message", "ログアウトできませんでした: ${it.message}")) }
+                emit("auth", JSONObject().put("loggedIn", CodexRuntime.isLoggedIn(ctx)))
+            }
+        }
+
+        /** Codex が提示しているモデルと、ログイン中のアカウント。 */
+        @JavascriptInterface
+        fun codexModels(reqId: String) {
+            val ctx = applicationContext
+            launchQuiet {
+                try {
+                    val account = CodexRuntime.account(ctx)
+                    val models = if (account != null) CodexRuntime.models(ctx, fresh = true) else JSONArray()
+                    emit("codexModels", req(reqId)
+                        .put("models", models)
+                        .put("account", account ?: JSONObject.NULL))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    emit("codexModels", req(reqId)
+                        .put("models", JSONArray())
+                        .put("error", e.message ?: "モデルの一覧を取得できませんでした"))
                 }
             }
         }
 
         @JavascriptInterface
-        fun logout() { auth.logout(); emit("auth", JSONObject().put("loggedIn", false)) }
+        fun codexCheckUpdate(reqId: String) {
+            val ctx = applicationContext
+            launchQuiet {
+                try {
+                    val rel = CodexUpdater.latest(ctx)
+                    emit("codexUpdate", req(reqId).put("status", CodexUpdater.status(ctx))
+                        .put("available", if (CodexUpdater.isNewer(ctx, rel)) rel.version else "")
+                        .put("upToDate", !CodexUpdater.isNewer(ctx, rel)))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    emit("codexUpdate", req(reqId).put("status", CodexUpdater.status(ctx))
+                        .put("error", "更新を確認できませんでした: ${e.message ?: e.javaClass.simpleName}"))
+                }
+            }
+        }
+
+        @JavascriptInterface
+        fun codexUpdate(reqId: String) { runOnUiThread { runCodexUpdate("codex-update-$reqId") } }
 
         @JavascriptInterface
         fun refresh(reqId: String) { runOnUiThread { runRefresh(reqId) } }
@@ -639,6 +822,13 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface
         fun openUrl(url: String) {
             runOnUiThread { runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } }
+        }
+
+        @JavascriptInterface
+        fun copy(text: String) {
+            runCatching {
+                getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("code", text))
+            }
         }
 
         @JavascriptInterface

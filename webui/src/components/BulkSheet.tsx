@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loader2, Sparkles, X } from "lucide-react";
-import { api, type AppState, type BulkOptions, type BulkPlan } from "@/lib/native";
+import { api, effortLabel, type AppState, type BulkOptions, type BulkPlan } from "@/lib/native";
 import { Button, Card, Segmented, Sheet, SheetContent, Switch } from "./ui";
 
 /**
@@ -34,6 +34,9 @@ export function BulkSheet({
   const targets = scope === "all" ? plan.all : plan.stale;
   const macroIncluded = scope === "all" || plan.macroStale;
   const steps = targets.length * (withForecast ? 2 : 1) + (macroIncluded ? 1 : 0);
+
+  const { model, effort } = state.settings;
+  const usage = `（モデル: ${model || "自動"}／思考の深さ: ${effort ? effortLabel(effort) : "自動"}）`;
 
   const run = () => {
     if (!state.loggedIn) { api.login(); return; }
@@ -124,7 +127,7 @@ export function BulkSheet({
                 <p className="mt-1.5 text-[11px] leading-snug text-ore">
                   {steps === 0
                     ? "すべて最新です。実行する必要はありません。"
-                    : `1件あたり1〜2分程度かかります。モデルは ${state.settings.model || "設定値"}、思考の深さは ${state.settings.effort} を使います。`}
+                    : `1件あたり1〜2分程度かかります${usage}。`}
                 </p>
               </Card>
 

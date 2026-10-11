@@ -16,7 +16,7 @@ object Prompts {
     private const val COMMON =
         "You are an equity analyst covering precious-metals miners for a Japanese retail investor. " +
         "The investor holds positions for roughly one year and does not day-trade. " +
-        "Always use the web_search tool to verify figures against primary sources " +
+        "Always search the web to verify figures against primary sources " +
         "(company IR pages, quarterly MD&A, news wires). Today's data may be newer than your training data, " +
         "so never answer from memory alone for anything time-sensitive. " +
         "If a figure cannot be verified, return null for it rather than estimating. " +

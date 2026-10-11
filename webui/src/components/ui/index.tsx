@@ -135,8 +135,10 @@ export function Select({
           className,
         )}
       >
-        <SelectPrimitive.Value />
-        <ChevronDown size={14} className="text-ore" />
+        <span className="min-w-0 truncate">
+          <SelectPrimitive.Value />
+        </span>
+        <ChevronDown size={14} className="shrink-0 text-ore" />
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal>
         <SelectPrimitive.Content

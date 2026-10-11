@@ -147,8 +147,11 @@ export interface BulkPlan {
 }
 
 export interface Settings {
+  /** 空 = Codex のデフォルト。Codex の更新に追従する */
   model: string;
+  /** 空 = そのモデルのデフォルト */
   effort: string;
+  codexAutoUpdate: "wifi" | "always" | "off";
   horizon: "3m" | "12m";
   alerts: boolean;
   moveThreshold: number;
@@ -157,13 +160,35 @@ export interface Settings {
   autoAnalyzeDays: number;
 }
 
+/** Codex が提示しているモデル（model/list）。アプリ側に一覧は持たない。 */
+export interface CodexModel {
+  id: string;
+  displayName: string;
+  description: string;
+  isDefault: boolean;
+  defaultEffort: string;
+  efforts: string[];
+}
+
+export interface CodexAccount { email?: string | null; planType?: string | null }
+
+export interface CodexUpdateStatus {
+  /** 実行に使う版 */
+  active: string;
+  /** APK に同梱した版 */
+  bundled: string;
+  latest: string;
+  checkedAt: number;
+}
+
+export interface CodexDownload { version: string; done: number; total: number }
+
 export interface AppState {
   loggedIn: boolean;
   /** 画面が離れている間も走り続けているリクエストのID（あれば） */
   activeRequest?: string | null;
   progress?: { reqId: string; label: string; done: number; total: number } | null;
-  models: string[];
-  efforts: string[];
+  codex: { bundled: boolean; update: CodexUpdateStatus; updating: CodexDownload | null };
   settings: Settings;
   universe: Universe;
   snapshot: Snapshot;
@@ -175,8 +200,12 @@ export interface AppState {
 
 interface Bridge {
   state(): string;
-  login(): void;
+  login(reqId: string, device: boolean): void;
+  cancelLogin(): void;
   logout(): void;
+  codexModels(reqId: string): void;
+  codexCheckUpdate(reqId: string): void;
+  codexUpdate(reqId: string): void;
   refresh(reqId: string): void;
   research(reqId: string, ticker: string): void;
   researchMacro(reqId: string): void;
@@ -193,6 +222,7 @@ interface Bridge {
   removeTicker(ticker: string): string;
   saveSettings(json: string): void;
   openUrl(url: string): void;
+  copy(text: string): void;
   share(text: string): void;
   haptic(): void;
 }
@@ -241,9 +271,9 @@ export const emptyState: AppState = {
   loggedIn: false,
   activeRequest: null,
   progress: null,
-  models: [], efforts: [],
+  codex: { bundled: true, update: { active: "", bundled: "", latest: "", checkedAt: 0 }, updating: null },
   settings: {
-    model: "", effort: "high", horizon: "12m", alerts: true,
+    model: "", effort: "", codexAutoUpdate: "wifi", horizon: "12m", alerts: true,
     moveThreshold: 7, autoRefresh: true, autoAnalyze: false, autoAnalyzeDays: 7,
   },
   universe: { categories: {} as any, tickers: [], benchmarks: [] },
@@ -256,8 +286,14 @@ export const emptyState: AppState = {
 
 export const api = {
   state: (): AppState => parse(N()?.state(), emptyState),
-  login: () => N()?.login(),
+  /** ログイン方法を選ぶシートを開く。AIを使う操作の各所から呼ばれる。 */
+  login: () => window.__native?.("openLogin", {}),
+  startLogin: (reqId: string, device: boolean) => N()?.login(reqId, device),
+  cancelLogin: () => N()?.cancelLogin(),
   logout: () => N()?.logout(),
+  codexModels: (reqId: string) => N()?.codexModels(reqId),
+  codexCheckUpdate: (reqId: string) => N()?.codexCheckUpdate(reqId),
+  codexUpdate: (reqId: string) => N()?.codexUpdate(reqId),
   refresh: (reqId: string) => N()?.refresh(reqId),
   research: (reqId: string, t: string) => N()?.research(reqId, t),
   researchMacro: (reqId: string) => N()?.researchMacro(reqId),
@@ -276,6 +312,21 @@ export const api = {
   removeTicker: (t: string): Universe => parse(N()?.removeTicker(t), emptyState.universe),
   saveSettings: (s: Partial<Settings>) => N()?.saveSettings(JSON.stringify(s)),
   openUrl: (u: string) => N()?.openUrl(u),
+  copy: (t: string) => N()?.copy(t),
   share: (t: string) => N()?.share(t),
   haptic: () => N()?.haptic(),
 };
+
+const EFFORT_LABELS: Record<string, string> = {
+  none: "なし",
+  minimal: "最小",
+  low: "低",
+  medium: "中",
+  high: "高",
+};
+
+/**
+ * 思考の深さの表示名。一般的な段階だけ訳し、xhigh・max・ultra のような
+ * Codex 固有の段階（後から増えるものを含む）は Codex での呼び名のまま出す。
+ */
+export const effortLabel = (e: string) => EFFORT_LABELS[e] ?? e;
