@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/mokouliszt/Goldras/releases/latest"><img src="https://img.shields.io/github/v/release/mokouliszt/Goldras?style=flat-square&color=e8b04b" alt="release"></a>
-  <img src="https://img.shields.io/badge/Android-8.0%2B-e8b04b?style=flat-square" alt="Android 8.0+">
+  <img src="https://img.shields.io/badge/Android-8.0%2B%20arm64-e8b04b?style=flat-square" alt="Android 8.0+ arm64">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-8b8171?style=flat-square" alt="MIT"></a>
 </p>
 
