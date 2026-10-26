@@ -139,12 +139,36 @@ API キーが必要な有料データソースは使っていません。
 
 ## 動作環境
 
-- Android 8.0 (API 26) 以上
+- Android 8.0 (API 26) 以上の 64bit ARM 端末（arm64-v8a）
+- 400 MB 程度の空き容量（初回起動時に Codex を展開するため）
 - ChatGPT の有効なサブスクリプション（Codex が利用できるもの）
 
 API キーには対応していません。初回にアプリ内から ChatGPT にログインすると、以降はそのサブスクリプション枠で調査と予測が実行されます。
 
 **市場データの取得と表示だけならログイン不要**で動きます。
+
+## Codex の組み込み
+
+公式の [Codex](https://github.com/openai/codex) から app-server（`codex-app-server`）と code-mode-host（`codex-code-mode-host`）を、どちらも無改変のままアプリに同梱し、公開されている JSON-RPC で操作しています。ログイン、トークンの更新、モデルの呼び出しは Codex の担当で、アプリから ChatGPT のバックエンドへ直接リクエストを送ることはありません。
+
+ログインはブラウザかデバイスコードで行います。ブラウザの場合、認可の戻り先は端末内で待ち受けている Codex（`127.0.0.1:1455`）です。調査中の web 検索は常に有効で、ツールの実行に承認は求めません。現行のモデルは web 検索を code mode（モデルが書いた JavaScript からツールを呼ぶ仕組み）経由で行い、その実行を受け持つのが code-mode-host です。
+
+モデルと思考の深さは既定で「自動」になっていて、Codex のデフォルトに従います。選択肢も実行中の Codex から取ってくるので、新しいモデルが出てもアプリの更新は要りません。固定していたモデルが提供されなくなった場合は、自動に戻して実行します。
+
+ただし ChatGPT 側は、古い Codex には新しいモデルを返しません。2026年10月に試したところ、0.150 系の Codex には GPT-6 系が一覧に出てきませんでした。そこで起動時に（1時間に1回まで）openai/codex の新しいリリースを確認し、app-server と code-mode-host を取得して、GitHub が公開している SHA-256 との照合と試し起動を済ませてから切り替えています。起動できなかった版は使わず、同梱版に戻ります。自動更新は「Wi-Fiのみ／常に／しない」から選べます。
+
+musl の静的バイナリを Android で動かすために、次の対処をしています。
+
+| Android の制約 | 対処 |
+| --- | --- |
+| app-server は code-mode-host を自分と同じフォルダから探すが、ネイティブライブラリの置き場には `lib*.so` という名前のファイルしか展開されない | host は `libcodex_code_mode_host.so` として展開させる。app-server は assets に入れておき、初回起動時にアプリの保存領域へ展開して、隣に host へのシンボリックリンクを置く |
+| `/etc/resolv.conf` が無いので、musl の名前解決が失敗する | 起動のたびに資格情報を変えるループバックの HTTPS（CONNECT）プロキシを `HTTPS_PROXY` に指定し、名前解決を Android 側で行う |
+| `/etc/ssl` が無い | Android の信頼済みルート証明書を PEM にまとめ、`SSL_CERT_FILE` / `CODEX_CA_CERTIFICATE` で渡す |
+| targetSdk 29 以上のアプリは、アプリの保存領域に置いた実行ファイルを起動できない | `targetSdkVersion` を 28 にしている（Termux と同じ判断） |
+
+bubblewrap に必要なユーザー名前空間が Android には無いため、Codex のサンドボックス内でのシェル実行は使えません。調査と予測は web 検索と文章の処理で完結するので、影響はありません。
+
+v1.4 以前にログインしていた場合、保存済みのトークンは初回起動時に Codex 側へ移すので、ログインし直す必要はありません。
 
 ## インストール
 
@@ -165,14 +189,18 @@ cd webui && npm ci && npm run build && cd ..
 
 Web UI のビルド成果物はリポジトリに含まれていません。**手順 1 を省略すると空の WebView が起動します。**
 
+手順 2 では、固定した版の `codex-app-server-aarch64-unknown-linux-musl`（約 80 MB）と `codex-code-mode-host-aarch64-unknown-linux-musl`（約 26 MB）を GitHub Releases から取得し、SHA-256 を照合してから `build/generated/codexAssets` と `build/generated/codexJniLibs` に置きます。ネットワークに出られない環境では `-PcodexBinary=/path/to/codex-app-server -PcodexHostBinary=/path/to/codex-code-mode-host` で手元のバイナリを指定してください。APK は Codex を含めて 110 MB 前後になります。
+
 署名する場合は `keystore.properties.example` を `keystore.properties` にコピーして書き換えるか、環境変数 `GOLDRAS_KEYSTORE` / `GOLDRAS_STORE_PW` / `GOLDRAS_KEY_ALIAS` / `GOLDRAS_KEY_PW` を設定してください。いずれも指定がない場合は未署名でビルドされます。
 
 ## 構成
 
 ```
 app/src/main/java/dev/mokouliszt/goldras/
-  CodexAuth.kt       ChatGPT の OAuth（PKCE + localhost:1455 ループバック）
-  CodexClient.kt     Codex backend を直接呼ぶ。web検索ON / shell を full-auto で実行
+  CodexRuntime.kt    同梱 Codex の起動と JSON-RPC（ログイン、モデル一覧、ターンの実行）
+  CodexClient.kt     指示文と会話を1ターン分の入力にまとめ、モデルと思考の深さの設定を解決する
+  CodexUpdater.kt    同梱 Codex の展開、新しいリリースの確認・取得・検証、失敗時の同梱版への戻し
+  LocalProxy.kt      Codex の名前解決を Android 側で行うためのループバックプロキシ
   Net.kt             システムDNS → Cloudflare DoH フォールバック
   MarketData.kt      Yahoo / FRED からの時系列取得と、RSI・移動平均・相対強弱の算出
   Scoring.kt         買い場スコアと金の地合いスコアの合成
@@ -190,6 +218,7 @@ webui/src/
   components/Signal.tsx    買い場スコアの並べ替えと内訳
   components/AiTab.tsx     対話・シナリオ予測・予測ログ
   components/BulkSheet.tsx AI処理の一括実行
+  components/LoginSheet.tsx ChatGPT へのログイン（ブラウザ／デバイスコード）
   components/MarginBar.tsx コストバー
   components/Charts.tsx    スコアゲージ、スパークライン
   lib/native.ts            ネイティブブリッジと型
@@ -198,17 +227,18 @@ webui/src/
 
 UI は React + Tailwind + shadcn/ui 由来のコンポーネントで構成し、Vite で `app/src/main/assets/webui` に出力します。WebView へは `WebViewAssetLoader` 経由で `https://appassets.androidplatform.net/` 配下から配信します。
 
-Android 上で Codex を動作させる部分（PKCE ループバック認証、Responses API の直接呼び出し、web検索の常時有効化、shell ツールの full-auto サンドボックス実行）は、同作者の **[overlay-ai](https://github.com/mokouliszt/overlay-ai)** および **[Coupodex](https://github.com/mokouliszt/Coupodex)** の実装を流用しています。
-
 ## データの扱い
 
 - 銘柄・市場データ・予測ログ・設定は端末内（`filesDir`）にのみ保存されます。外部への同期は行いません
-- 端末外に送信されるのは、調査・予測のリクエストに含まれる銘柄名と手元の数値です。送信先はログイン済みの ChatGPT アカウントと、Yahoo Finance / FRED の各エンドポイントのみです
+- 端末外に送信されるのは、調査・予測のリクエストに含まれる銘柄名と手元の数値です。送信先はログイン済みの ChatGPT アカウント（同梱の Codex 経由）と、Yahoo Finance / FRED の各エンドポイントのみです
+- Codex の更新確認と取得のため、GitHub（api.github.com / github.com）にも接続します
 - アンインストールするとデータも削除されます。バックアップ機能はありません
 
 ## 制限事項
 
-本アプリは公開されていない API を直接利用しています。ChatGPT の Codex backend (`chatgpt.com/backend-api/codex/responses`) に直接リクエストを送信するため、OpenAI 側の仕様変更により動作しなくなる場合があります。利用にあたっては OpenAI の利用規約を各自で確認してください。
+ChatGPT との通信は同梱の公式 Codex が行いますが、Codex や ChatGPT 側の変更で動作しなくなる場合があります。利用にあたっては OpenAI の利用規約を各自で確認してください。
+
+同梱の Codex が arm64 版のみなので、arm64 以外の端末（32bit 端末や x86 のエミュレータ）にはインストールできません。また、Codex の自動更新のために targetSdk を 28 にしているため、Google Play では配布できません。
 
 Yahoo Finance のエンドポイントも同様に非公式であり、予告なく変更される可能性があります。
 
@@ -226,10 +256,12 @@ Yahoo Finance のエンドポイントも同様に非公式であり、予告な
 
 Goldras is an Android app for tracking US-listed gold mining equities over a one-year horizon.
 
-It separates royalty/streaming companies from miners and scores each on valuation, margin, macro and flow, capping the score whenever a material red flag is detected. Price, rates and crude data are fetched directly by the device; unstructured data such as all-in sustaining costs, guidance revisions and jurisdiction events are gathered by Codex through your own ChatGPT subscription. No server and no API key are required. It also logs its own forecasts and grades them when they come due — because a forecast you never check is just noise you keep believing.
+It separates royalty/streaming companies from miners and scores each on valuation, margin, macro and flow, capping the score whenever a material red flag is detected. Price, rates and crude data are fetched directly by the device; unstructured data such as all-in sustaining costs, guidance revisions and jurisdiction events are gathered by the official Codex app-server bundled with the app, signed in with your own ChatGPT subscription. Models and reasoning effort follow Codex's defaults, and newer models show up as the bundled Codex updates itself. No server and no API key are required. It also logs its own forecasts and grades them when they come due — because a forecast you never check is just noise you keep believing.
 
-The UI is Japanese only. Requires Android 8.0+ and an active ChatGPT subscription; market data alone works without login. Not investment advice.
+The UI is Japanese only. Requires Android 8.0+ on arm64 and an active ChatGPT subscription; market data alone works without login. Not investment advice.
 
 ## ライセンス
 
 [MIT](LICENSE) © 2026 mokouliszt
+
+同梱の Codex は Apache License 2.0 です。[NOTICE](NOTICE) と `third_party/licenses/` を参照してください。
